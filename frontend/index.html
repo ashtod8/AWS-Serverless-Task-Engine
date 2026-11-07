@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Serverless Task App</title>
+    <script src="https://unpkg.com/amazon-cognito-identity-js@6.3.12/dist/amazon-cognito-identity.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; max-width: 600px; }
+        .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        input, button { margin: 5px 0; padding: 8px; width: 95%; }
+        button { width: 100%; background: #0073bb; color: white; border: none; cursor: pointer; }
+        li { margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+
+    <h2>Serverless Task Manager</h2>
+
+    <!-- Auth Section -->
+    <div id="auth-section" class="section">
+        <h3>1. Authentication</h3>
+        <input type="email" id="email" placeholder="Email"><br>
+        <input type="password" id="password" placeholder="Password"><br>
+        <button onclick="signUp()">Sign Up</button>
+        <button onclick="confirmUser()">Confirm Registration Code</button>
+        <button onclick="signIn()">Sign In</button>
+    </div>
+
+    <!-- Task Section -->
+    <div id="task-section" class="section" style="display:none;">
+        <h3>2. Task Operations</h3>
+        <input type="text" id="taskInput" placeholder="Enter task description">
+        <button onclick="addTask()">Add Task</button>
+        <button onclick="getTasks()">Refresh Tasks</button>
+        <ul id="taskList"></ul>
+    </div>
+
+    <script>
+        const CONFIG = {
+            UserPoolId: 'YOUR_USER_POOL_ID',
+            ClientId: 'YOUR_CLIENT_ID',
+            ApiUrl: 'YOUR_API_GATEWAY_URL/tasks'
+        };
+
+        const poolData = { UserPoolId: CONFIG.UserPoolId, ClientId: CONFIG.ClientId };
+        const userPool = new AmazonCognitoIdentity.CognitoUserPool(poolData);
+        let idToken = "";
+
+        function signUp() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const attributeList = [new AmazonCognitoIdentity.CognitoUserAttribute({ Name: 'email', Value: email })];
+
+            userPool.signUp(email, password, attributeList, null, (err, result) => {
+                if (err) return alert(err.message || JSON.stringify(err));
+                alert('Sign-up successful! Check email for verification code.');
+            });
+        }
+
+        function confirmUser() {
+            const email = document.getElementById('email').value;
+            const code = prompt("Enter confirmation code from email:");
+            const userData = { Username: email, Pool: userPool };
+            const cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
+
+            cognitoUser.confirmRegistration(code, true, (err, result) => {
+                if (err) return alert(err.message || JSON.stringify(err));
+                alert('User verified successfully. You can now sign in.');
+            });
+        }
+
+        function signIn() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const authData = { Username: email, Password: password };
+            const authDetails = new AmazonCognitoIdentity.AuthenticationDetails(authData);
+            const userData = { Username: email, Pool: userPool };
+            const cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
+
+            cognitoUser.authenticateUser(authDetails, {
+                onSuccess: (result) => {
+                    idToken = result.getIdToken().getJwtToken();
+                    document.getElementById('auth-section').style.display = 'none';
+                    document.getElementById('task-section').style.display = 'block';
+                    getTasks();
+                },
+                onFailure: (err) => alert(err.message || JSON.stringify(err))
+            });
+        }
+
+        async function addTask() {
+            const desc = document.getElementById('taskInput').value;
+            await fetch(CONFIG.ApiUrl, {
+                method: 'POST',
+                headers: { 'Authorization': idToken, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ description: desc })
+            });
+            document.getElementById('taskInput').value = '';
+            getTasks();
+        }
+
+        async function getTasks() {
+            const res = await fetch(CONFIG.ApiUrl, {
+                method: 'GET',
+                headers: { 'Authorization': idToken }
+            });
+            const tasks = await res.json();
+            const list = document.innerHTML = '';
+            const list = document.getElementById('taskList');
+            list.innerHTML = '';
+            tasks.forEach(t => {
+                const li = document.createElement('li');
+                li.innerText = t.description;
+                list.appendChild(li);
+            });
+        }
+    </script>
+</body>
+</html>
